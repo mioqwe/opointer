@@ -1,0 +1,17 @@
+{
+  "name": "@opointer/extension",
+  "version": "1.0.0",
+  "description": "Browser extension for AI-powered DOM editing",
+  "scripts": {
+    "build": "npm run build:firefox && npm run build:chrome",
+    "build:firefox": "node scripts/build.js firefox",
+    "build:chrome": "node scripts/build.js chrome",
+    "package": "npm run package:firefox && npm run package:chrome",
+    "package:firefox": "cd dist/firefox && zip -r ../opointer-extension-firefox.xpi .",
+    "package:chrome": "cd dist/chrome && zip -r ../opointer-extension-chrome.zip ."
+  },
+  "devDependencies": {
+    "@types/firefox-webext-browser": "^120.0.0",
+    "esbuild": "^0.28.0"
+  }
+}

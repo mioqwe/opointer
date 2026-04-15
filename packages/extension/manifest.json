@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "OpenCode DOM Editor",
+  "version": "1.0.0",
+  "description": "AI-powered DOM editing via OpenCode",
+  "permissions": ["activeTab", "storage", "commands"],
+  "host_permissions": ["<all_urls>"],
+  "commands": {
+    "select-element": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      }
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon.png",
+      "48": "assets/icon.png",
+      "128": "assets/icon.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon.png",
+    "48": "assets/icon.png",
+    "128": "assets/icon.png"
+  }
+}

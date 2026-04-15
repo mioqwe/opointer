@@ -1,0 +1,26 @@
+{
+  "name": "opointer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser extension with WebSocket bridge server for AI-powered DOM editing via OpenCode",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist packages/*/.plasmo"
+  },
+  "keywords": [
+    "opencode",
+    "browser-extension",
+    "dom-editor",
+    "ai",
+    "websocket"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
