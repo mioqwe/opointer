@@ -1,3 +1,10 @@
+interface ElementSourceInfo {
+  filePath: string | null
+  lineNumber: number | null
+  columnNumber: number | null
+  componentName: string | null
+}
+
 interface DomContext {
   tagName: string
   attributes: Record<string, string>
@@ -6,6 +13,9 @@ interface DomContext {
   xPath: string
   parentHierarchy: string[]
   children: string[]
+  sourceInfo: ElementSourceInfo | null
+  componentStack: ElementSourceInfo[]
+  resolved: boolean
 }
 
 interface SelectionMessage {
@@ -21,6 +31,75 @@ interface SessionInfo {
   truncatedId: string
 }
 
+interface CommandInfo {
+  id: string
+  title: string
+  description: string
+}
+
+import { resolveElementInfo } from "element-source"
+
+async function getSvelteMetaFromPage(element: HTMLElement): Promise<{ meta: any; depth: number } | null> {
+  return new Promise((resolve) => {
+    const callbackId = `svelte-meta-${Date.now()}-${Math.random()}`
+    const elementId = `__opointer_${Date.now()}`
+    
+    // Give the element a unique ID so we can find it in page context
+    if (!element.id) {
+      element.id = elementId
+    }
+    const targetId = element.id
+    
+    const handler = (event: MessageEvent) => {
+      if (event.data?.callbackId === callbackId) {
+        window.removeEventListener('message', handler)
+        
+        // Clean up the ID we added
+        if (element.id === elementId) {
+          element.removeAttribute('id')
+        }
+        
+        resolve(event.data.result)
+      }
+    }
+    window.addEventListener('message', handler)
+    
+    const script = document.createElement('script')
+    script.textContent = `
+      (function() {
+        var el = document.getElementById('${targetId}');
+        if (!el) {
+          window.postMessage({ callbackId: '${callbackId}', result: null }, '*');
+          return;
+        }
+        var depth = 0;
+        var current = el;
+        while (current && depth < 20) {
+          if ('__svelte_meta' in current) {
+            window.postMessage({ callbackId: '${callbackId}', result: { meta: current.__svelte_meta, depth: depth } }, '*');
+            return;
+          }
+          current = current.parentElement;
+          depth++;
+        }
+        window.postMessage({ callbackId: '${callbackId}', result: null }, '*');
+      })();
+    `
+    
+    document.head.appendChild(script)
+    script.remove()
+    
+    setTimeout(() => {
+      window.removeEventListener('message', handler)
+      // Clean up ID on timeout
+      if (element.id === elementId) {
+        element.removeAttribute('id')
+      }
+      resolve(null)
+    }, 5000)
+  })
+}
+
 let isSelecting = false
 let isChatOpen = false
 let currentProjectDir = ""
@@ -28,9 +107,14 @@ let selectionOverlay: HTMLDivElement | null = null
 let hoveredElement: HTMLElement | null = null
 let chatModal: HTMLDivElement | null = null
 let sessionId: string | null = null
-let sessionsDropdown: HTMLDivElement | null = null
+let dropdownContainer: HTMLDivElement | null = null
 let currentDomContext: DomContext | null = null
 let currentTabId: number | null = null
+
+const AVAILABLE_COMMANDS: CommandInfo[] = [
+  { id: "sessions", title: "/sessions", description: "Switch to a different session" },
+  { id: "new", title: "/new", description: "Clear session and start fresh" }
+]
 
 const OVERLAY_STYLES = `
   * { cursor: crosshair !important; }
@@ -118,6 +202,31 @@ const OVERLAY_STYLES = `
   .opencode-session-item-id {
     color: #484f58 !important; font-size: 10px !important;
   }
+  .opencode-commands-dropdown {
+    position: fixed; bottom: 80px; left: 20px;
+    background: #0d1117; border: 1px solid #30363d;
+    border-radius: 6px; z-index: 2147483647;
+    max-height: 200px; overflow-y: auto;
+    min-width: 250px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  .opencode-command-item {
+    padding: 8px 12px !important; cursor: pointer !important;
+    border-bottom: 1px solid #21262d !important; color: #c9d1d9 !important;
+    font-size: 12px !important; font-family: 'SF Mono', Monaco, 'Courier New', monospace !important;
+  }
+  .opencode-command-item:hover {
+    background: #1f6feb !important;
+  }
+  .opencode-command-item:last-child {
+    border-bottom: none !important;
+  }
+  .opencode-command-item-title {
+    color: #58a6ff !important; margin-bottom: 2px !important;
+  }
+  .opencode-command-item-desc {
+    color: #484f58 !important; font-size: 10px !important;
+  }
 `
 
 function injectStyles(): void {
@@ -152,13 +261,73 @@ function removeOverlay(): void {
 function removeChatModal(): void {
   console.log("[Content] removeChatModal called")
   if (chatModal) { chatModal.remove(); chatModal = null }
-  if (sessionsDropdown) { sessionsDropdown.remove(); sessionsDropdown = null }
+  if (dropdownContainer) { dropdownContainer.remove(); dropdownContainer = null }
   isChatOpen = false
 }
 
-function removeSessionsDropdown(): void {
-  console.log("[Content] removeSessionsDropdown called")
-  if (sessionsDropdown) { sessionsDropdown.remove(); sessionsDropdown = null }
+function removeDropdown(): void {
+  console.log("[Content] removeDropdown called")
+  if (dropdownContainer) { dropdownContainer.remove(); dropdownContainer = null }
+}
+
+function showCommandsDropdown(commands: CommandInfo[], textarea: HTMLTextAreaElement): void {
+  console.log("[Content] showCommandsDropdown called")
+  removeDropdown()
+
+  dropdownContainer = document.createElement("div")
+  dropdownContainer.style.cssText = `
+    width: 100% !important; max-height: 200px !important; overflow-y: auto !important;
+    background: #0d1117 !important; border-top: 1px solid #30363d !important;
+  `
+
+  const rect = textarea.getBoundingClientRect()
+  dropdownContainer.style.left = `${rect.left}px`
+  dropdownContainer.style.bottom = `${window.innerHeight - rect.top}px`
+
+  commands.forEach(command => {
+    const item = document.createElement("div")
+    item.style.cssText = `
+      padding: 8px 12px !important; cursor: pointer !important;
+      color: #c9d1d9 !important;
+      font-size: 12px !important; font-family: 'SF Mono', Monaco, 'Courier New', monospace !important;
+    `
+    item.innerHTML = `
+      <span style="color: #58a6ff !important;">${command.title}</span>
+      <span style="color: #484f58 !important; margin-left: 8px; font-size: 11px;">${command.description}</span>
+    `
+    item.addEventListener("click", () => {
+      executeCommand(command.id)
+      removeDropdown()
+    })
+    item.addEventListener("mouseover", () => {
+      item.style.background = "#21262d !important"
+    })
+    item.addEventListener("mouseout", () => {
+      item.style.background = "transparent !important"
+    })
+    dropdownContainer!.appendChild(item)
+  })
+
+  chatModal!.insertBefore(dropdownContainer, chatModal!.firstChild)
+}
+
+function executeCommand(commandId: string): void {
+  console.log("[Content] executeCommand called, id:", commandId)
+  if (commandId === "sessions") {
+    fetchSessionsList()
+  } else if (commandId === "new") {
+    sessionId = null
+    const hintEl = document.getElementById("opencode-hint")
+    if (hintEl) {
+      hintEl.textContent = "ESC to close"
+    }
+    if (currentTabId) {
+      browser.runtime.sendMessage({
+        type: "CLEAR_SESSION",
+        tabId: currentTabId
+      })
+    }
+  }
 }
 
 function cleanup(): void {
@@ -176,6 +345,7 @@ function cleanup(): void {
   
   removeOverlay()
   removeChatModal()
+  removeDropdown()
   
   const style = document.getElementById("opencode-selection-styles")
   if (style) style.remove()
@@ -198,7 +368,7 @@ function getElementXPath(element: Element): string {
   return `//${parts.join("/")}`
 }
 
-function captureDomContext(element: HTMLElement): DomContext {
+async function captureDomContext(element: HTMLElement): Promise<DomContext> {
   const computed = window.getComputedStyle(element)
   const attributes: Record<string, string> = {}
   for (const attr of element.attributes) {
@@ -221,6 +391,33 @@ function captureDomContext(element: HTMLElement): DomContext {
   for (const child of element.children) {
     children.push(child.tagName.toLowerCase())
   }
+
+  let sourceInfo: ElementSourceInfo | null = null
+  let componentStack: ElementSourceInfo[] = []
+  let resolved = false
+
+  try {
+    const info = await resolveElementInfo(element)
+    sourceInfo = info.source || null
+    componentStack = info.stack || []
+    resolved = true
+    
+    // If element-source returned null, try page context injection as fallback
+    if (!sourceInfo || sourceInfo.filePath === null) {
+      const pageResult = await getSvelteMetaFromPage(element)
+      if (pageResult && pageResult.meta && pageResult.meta.loc) {
+        sourceInfo = {
+          filePath: pageResult.meta.loc.file,
+          lineNumber: pageResult.meta.loc.line,
+          columnNumber: pageResult.meta.loc.column,
+          componentName: null
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[Content] element-source error:", error)
+  }
+
   return {
     tagName: element.tagName.toLowerCase(),
     attributes,
@@ -228,11 +425,14 @@ function captureDomContext(element: HTMLElement): DomContext {
     computedStyles,
     xPath: getElementXPath(element),
     parentHierarchy,
-    children
+    children,
+    sourceInfo,
+    componentStack,
+    resolved
   }
 }
 
-function showElementOutline(element: HTMLElement): void {
+function showElementOutline(element: HTMLElement, label?: string): void {
   document.querySelectorAll(".opencode-element-outline").forEach(el => el.remove())
   const rect = element.getBoundingClientRect()
   const outline = document.createElement("div")
@@ -243,9 +443,16 @@ function showElementOutline(element: HTMLElement): void {
   outline.style.height = `${rect.height}px`
   const info = document.createElement("div")
   info.className = "opencode-element-info"
-  info.textContent = element.tagName.toLowerCase()
+  info.textContent = label || element.tagName.toLowerCase()
   outline.appendChild(info)
   document.body.appendChild(outline)
+}
+
+function getComponentLabel(sourceInfo: ElementSourceInfo | null): string | undefined {
+  if (!sourceInfo?.filePath) return undefined
+  const fileName = sourceInfo.filePath.split("/").pop() || ""
+  const line = sourceInfo.lineNumber ?? ""
+  return line ? `${fileName}:${line}` : fileName
 }
 
 function showCancelHint(): void {
@@ -259,7 +466,7 @@ function showCancelHint(): void {
 
 function fetchSessionsList(): void {
   console.log("[Content] fetchSessionsList called, currentProjectDir:", currentProjectDir)
-  removeSessionsDropdown()
+  removeDropdown()
   
   getCurrentTabId().then(tabId => {
     console.log("[Content] fetchSessionsList - tabId from query:", tabId)
@@ -280,40 +487,29 @@ function fetchSessionsList(): void {
 
 function showSessionsDropdown(sessions: SessionInfo[]): void {
   console.log("[Content] showSessionsDropdown called with sessions:", sessions)
-  removeSessionsDropdown()
+  removeDropdown()
   
   console.log("[Content] Creating sessions dropdown")
-  sessionsDropdown = document.createElement("div")
-  sessionsDropdown.style.cssText = `
-    position: fixed !important;
-    top: 20px !important;
-    right: 20px !important;
-    background: #161b22 !important;
-    border: 1px solid #30363d !important;
-    border-radius: 6px !important;
-    z-index: 2147483647 !important;
-    max-height: 400px !important;
-    overflow-y: auto !important;
-    min-width: 300px !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+  dropdownContainer = document.createElement("div")
+  dropdownContainer.style.cssText = `
+    width: 100% !important; max-height: 300px !important; overflow-y: auto !important;
+    background: #0d1117 !important; border-top: 1px solid #30363d !important;
   `
   
   const header = document.createElement("div")
-  header.style.cssText = "padding: 10px 14px; border-bottom: 1px solid #30363d; color: #8b949e; font-size: 11px; font-family: monospace;"
+  header.style.cssText = "padding: 10px 14px; border-bottom: 1px solid #30363d; color: #8b949e; font-size: 11px; font-family: 'SF Mono', Monaco, 'Courier New', monospace;"
   header.textContent = `Select Session (${sessions.length} available)`
-  sessionsDropdown.appendChild(header)
+  dropdownContainer.appendChild(header)
   
   console.log("[Content] Sessions count:", sessions.length)
   sessions.forEach(session => {
     console.log("[Content] Adding session item:", session.title, session.truncatedId)
     const item = document.createElement("div")
     item.style.cssText = `
-      padding: 12px 16px !important;
-      cursor: pointer !important;
+      padding: 10px 14px !important; cursor: pointer !important;
       border-bottom: 1px solid #21262d !important;
       color: #c9d1d9 !important;
-      font-size: 12px !important;
-      font-family: monospace !important;
+      font-size: 12px !important; font-family: 'SF Mono', Monaco, 'Courier New', monospace !important;
     `
     item.innerHTML = `
       <div style="color: #58a6ff !important; margin-bottom: 4px !important;">${session.title || "Untitled"}</div>
@@ -329,30 +525,19 @@ function showSessionsDropdown(sessions: SessionInfo[]): void {
           sessionId: session.id
         })
       }
-      removeSessionsDropdown()
+      removeDropdown()
     })
     item.addEventListener("mouseover", () => {
-      item.style.background = "#1f6feb !important"
+      item.style.background = "#21262d !important"
     })
     item.addEventListener("mouseout", () => {
       item.style.background = "transparent !important"
     })
-    sessionsDropdown!.appendChild(item)
+    dropdownContainer!.appendChild(item)
   })
   
-  document.body.appendChild(sessionsDropdown)
-  console.log("[Content] Sessions dropdown appended to body")
-  
-  document.addEventListener("click", handleOutsideClick, true)
-}
-
-function handleOutsideClick(e: MouseEvent): void {
-  console.log("[Content] handleOutsideClick called, target:", e.target)
-  if (sessionsDropdown && !sessionsDropdown.contains(e.target as Node)) {
-    console.log("[Content] Click outside dropdown, removing")
-    removeSessionsDropdown()
-    document.removeEventListener("click", handleOutsideClick, true)
-  }
+  chatModal!.insertBefore(dropdownContainer, chatModal!.firstChild)
+  console.log("[Content] Sessions dropdown appended to chatModal")
 }
 
 function showChatModal(domContext: DomContext, projectDirectory: string, pageTitle: string, pageUrl: string): void {
@@ -504,6 +689,26 @@ function showChatModal(domContext: DomContext, projectDirectory: string, pageTit
     }
   })
 
+  textarea.addEventListener("input", () => {
+    console.log("[Content] input event, value:", textarea.value)
+    const value = textarea.value
+    if (value === "/") {
+      console.log("[Content] showing commands dropdown")
+      showCommandsDropdown(AVAILABLE_COMMANDS, textarea)
+    } else if (value.startsWith("/")) {
+      const filtered = AVAILABLE_COMMANDS.filter(c =>
+        c.title.toLowerCase().includes(value.toLowerCase())
+      )
+      if (filtered.length > 0) {
+        showCommandsDropdown(filtered, textarea)
+      } else {
+        removeDropdown()
+      }
+    } else {
+      removeDropdown()
+    }
+  })
+
   const handleEsc = (e: KeyboardEvent) => {
     console.log("[Content] ESC key handler, key:", e.key)
     if (e.key === "Escape") {
@@ -548,14 +753,21 @@ function handleMouseOut(): void {
   hoveredElement = null
 }
 
-function handleClick(e: MouseEvent): void {
-  console.log("[Content] handleClick called")
+async function handleClick(e: MouseEvent): Promise<void> {
   e.preventDefault()
   e.stopPropagation()
   
-  if (!isSelecting || !hoveredElement || isChatOpen) return
+  if (!isSelecting || isChatOpen) return
   
-  const domContext = captureDomContext(hoveredElement)
+  const clickedElement = e.target as HTMLElement
+  if (!clickedElement) return
+  
+  const domContext = await captureDomContext(clickedElement)
+  
+  const componentLabel = getComponentLabel(domContext.sourceInfo)
+  if (componentLabel) {
+    showElementOutline(clickedElement, componentLabel)
+  }
   showChatModal(domContext, currentProjectDir, document.title, window.location.href)
 }
 

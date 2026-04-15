@@ -1,3 +1,10 @@
+export interface ElementSourceInfo {
+  filePath: string | null
+  lineNumber: number | null
+  columnNumber: number | null
+  componentName: string | null
+}
+
 export interface DomContext {
   tagName: string
   attributes: Record<string, string>
@@ -6,6 +13,9 @@ export interface DomContext {
   xPath: string
   parentHierarchy: string[]
   children: string[]
+  sourceInfo: ElementSourceInfo | null
+  componentStack: ElementSourceInfo[]
+  resolved: boolean
 }
 
 export interface StatusMessage {

@@ -3,13 +3,15 @@ const fs = require('fs')
 const path = require('path')
 
 const target = process.argv[2] || 'firefox'
-const distDir = path.join(__dirname, '..', 'dist', target)
+const projectRoot = path.resolve(__dirname, '..', '..', '..')
+const distDir = path.join(projectRoot, 'dist', target)
 
 if (!fs.existsSync(distDir)) {
   fs.mkdirSync(distDir, { recursive: true })
 }
 
-const assetsDir = path.join(__dirname, '..', 'assets')
+const packageDir = path.resolve(__dirname, '..')
+const assetsDir = path.join(packageDir, 'assets')
 if (!fs.existsSync(assetsDir)) {
   fs.mkdirSync(assetsDir, { recursive: true })
 }
@@ -36,7 +38,7 @@ createPlaceholderIcon(64, 'icon64.png')
 createPlaceholderIcon(128, 'icon128.png')
 
 async function build() {
-  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'dist', 'manifest.json'), 'utf8'))
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'manifest.json'), 'utf8'))
   
   const browserTarget = target === 'chrome' ? 'chrome87' : 'firefox78'
   
@@ -53,16 +55,27 @@ async function build() {
       default_icon: manifest.icons,
       default_popup: "popup.html"
     }
+    delete manifest.host_permissions
+    delete manifest.action
+    manifest.background = {
+      scripts: ["background.js"]
+    }
+    delete manifest.background.service_worker
+    manifest.browser_specific_settings = {
+      gecko: {
+        id: "@opointer-dom-editor",
+        strict_min_version: "78.0"
+      }
+    }
   }
 
-  const outdir = path.join(__dirname, '..', 'dist', target)
-  fs.writeFileSync(path.join(outdir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  fs.writeFileSync(path.join(distDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
 
   await Promise.all([
     esbuild.build({
-      entryPoints: [path.join(__dirname, '..', 'src', 'background.ts')],
+      entryPoints: [path.join(packageDir, 'src', 'background.ts')],
       bundle: true,
-      outfile: path.join(outdir, 'background.js'),
+      outfile: path.join(distDir, 'background.js'),
       platform: 'browser',
       target: browserTarget,
       format: 'iife',
@@ -70,9 +83,9 @@ async function build() {
       minify: false,
     }),
     esbuild.build({
-      entryPoints: [path.join(__dirname, '..', 'src', 'content.ts')],
+      entryPoints: [path.join(packageDir, 'src', 'content.ts')],
       bundle: true,
-      outfile: path.join(outdir, 'content.js'),
+      outfile: path.join(distDir, 'content.js'),
       platform: 'browser',
       target: browserTarget,
       format: 'iife',
@@ -80,9 +93,9 @@ async function build() {
       minify: false,
     }),
     esbuild.build({
-      entryPoints: [path.join(__dirname, '..', 'src', 'popup.ts')],
+      entryPoints: [path.join(packageDir, 'src', 'popup.ts')],
       bundle: true,
-      outfile: path.join(outdir, 'popup.js'),
+      outfile: path.join(distDir, 'popup.js'),
       platform: 'browser',
       target: browserTarget,
       format: 'iife',
@@ -91,7 +104,7 @@ async function build() {
     })
   ])
 
-  const assetsTarget = path.join(outdir, 'assets')
+  const assetsTarget = path.join(distDir, 'assets')
   if (!fs.existsSync(assetsTarget)) {
     fs.mkdirSync(assetsTarget, { recursive: true })
   }
@@ -100,7 +113,7 @@ async function build() {
     fs.copyFileSync(path.join(assetsDir, file), path.join(assetsTarget, file))
   })
 
-  fs.copyFileSync(path.join(__dirname, '..', 'src', 'popup.html'), path.join(outdir, 'popup.html'))
+  fs.copyFileSync(path.join(packageDir, 'src', 'popup.html'), path.join(distDir, 'popup.html'))
 
   console.log(`Built for ${target}`)
 }

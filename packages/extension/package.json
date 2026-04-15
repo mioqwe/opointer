@@ -12,6 +12,7 @@
   },
   "devDependencies": {
     "@types/firefox-webext-browser": "^120.0.0",
+    "element-source": "^0.0.5",
     "esbuild": "^0.28.0"
   }
 }

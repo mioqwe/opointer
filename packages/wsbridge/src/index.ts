@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws"
 import { createOpencodeClient } from "@opencode-ai/sdk/client"
 import { randomUUID } from "crypto"
+import { formatSourceContext, type ElementSourceInfo } from "./elementSource.js"
 
 const MCP_SERVER_PORT = 9999
 const OPENCODE_URL = "http://localhost:4096"
@@ -13,6 +14,9 @@ interface DomContext {
   xPath: string
   parentHierarchy: string[]
   children: string[]
+  sourceInfo: ElementSourceInfo | null
+  componentStack: ElementSourceInfo[]
+  resolved: boolean
 }
 
 interface EditRequest {
@@ -98,13 +102,23 @@ async function handleEditRequest(request: EditRequest): Promise<string> {
     }
     
     const domContextJson = JSON.stringify(domContext, null, 2)
+    const sourceContext = formatSourceContext(
+      domContext.sourceInfo,
+      domContext.componentStack,
+      domContext.xPath
+    )
     
     const fullPrompt = `You are implementing a web edit requested by the user. 
 
 Given the following DOM context from a webpage (${pageUrl}):
-\`\`\`json
-${domContextJson}
-\`\`\`
+
+## Element Source Information
+${sourceContext}
+
+## DOM Element Details
+- Tag: ${domContext.tagName}
+- Attributes: ${JSON.stringify(domContext.attributes)}
+- Text: ${domContext.textContent.slice(0, 100)}
 
 Requested change: ${userPrompt}
 
