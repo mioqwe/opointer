@@ -1,0 +1,54 @@
+{
+  "manifest_version": 2,
+  "name": "OpenCode DOM Editor",
+  "version": "1.0.0",
+  "description": "AI-powered DOM editing via OpenCode",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "commands"
+  ],
+  "commands": {
+    "select-element": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      }
+    }
+  },
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "assets/icon.png",
+    "48": "assets/icon.png",
+    "128": "assets/icon.png"
+  },
+  "browser_action": {
+    "default_icon": {
+      "16": "assets/icon.png",
+      "48": "assets/icon.png",
+      "128": "assets/icon.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "@opointer-dom-editor",
+      "strict_min_version": "78.0"
+    }
+  }
+}

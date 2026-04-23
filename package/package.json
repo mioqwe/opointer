@@ -1,0 +1,55 @@
+{
+  "name": "element-source",
+  "version": "0.0.5",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "browser": "./dist/index.global.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/index.global.js",
+  "jsdelivr": "./dist/index.global.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "dependencies": {
+    "bippy": "^0.5.32"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-test-renderer": "^19.1.0",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vitest/browser": "^4.0.18",
+    "@vitest/browser-playwright": "^4.0.18",
+    "ink": "^6.8.0",
+    "ink-testing-library": "^4.0.0",
+    "playwright": "^1.58.2",
+    "preact": "^10.29.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-test-renderer": "^19.2.4",
+    "solid-js": "^1.9.11",
+    "svelte": "^5.53.10",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.0",
+    "vite-plugin-solid": "^2.11.10",
+    "vitest": "^4.0.18",
+    "vue": "^3.5.30"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "oxlint && tsc --noEmit",
+    "test": "vitest run",
+    "test:node": "vitest run --config vitest.node.config.ts",
+    "test:watch": "vitest"
+  }
+}
